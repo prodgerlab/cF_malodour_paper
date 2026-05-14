@@ -1,0 +1,177 @@
+# cF analysis - Microbiome characterization
+# Date: August 21, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Calculate Shannon Index, Bray-Curtis Dissimilarity Index, and characterize microbiome
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(vegan)
+library(ggplot2)
+library(ggpubr)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("microbiome.RData")    # contains microbiome count table
+
+# Prepare data
+taxa_cols <- colnames(microbiome)[!(colnames(microbiome) %in% c("sampleID", "symptom_status"))]
+microbe_abund <- microbiome[, taxa_cols]
+
+#############################
+##
+## SHANNON DIVERSITY
+##
+#############################
+
+microbiome$shannon <- diversity(microbe_abund, index = "shannon")
+
+# Wilcoxon test
+wilcox_result <- wilcox.test(shannon ~ symptom_status, data = microbiome)
+
+# plot
+ggplot(microbiome, aes(x = symptom_status, y = shannon, fill = symptom_status)) +
+  geom_boxplot(alpha = 0.7, width = 0.5, outlier.shape = NA) +
+  geom_jitter(width = 0.15, alpha = 0.6, size = 2) +
+  stat_summary(fun = median, geom = "point", shape = 23, size = 3, fill = "white") +
+  stat_compare_means(method = "wilcox.test", label = "p.format", label.y = max(microbiome$shannon) * 1.05) +
+  scale_fill_manual(values = c("A" = "#009E73", "S" = "#E69F00")) +
+  labs(
+    title = "Shannon Diversity by Symptom Status",
+    x = "Symptom Status",
+    y = "Shannon Diversity Index",
+    fill = "Group"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(hjust = 0.5, face = "bold")
+  )
+
+# Calculate mean Shannon diversity for each symptom group
+average_shannon <- aggregate(shannon ~ symptom_status, data = microbiome, FUN = mean)
+
+# View results
+average_shannon
+
+#############################
+##
+## BRAY-CURTIS
+##
+#############################
+
+# prepare data
+taxa_cols <- colnames(microbiome)[!(colnames(microbiome) %in% c("sampleID", "symptom_status"))]
+microbe_abund <- microbiome[, taxa_cols]
+groups <- microbiome$symptom_status
+
+# Manually compute matrix
+bray_dist <- function(mat) {
+  n <- nrow(mat)
+  dist_mat <- matrix(0, n, n)
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      num <- 2 * sum(pmin(mat[i, ], mat[j, ]))
+      denom <- sum(mat[i, ] + mat[j, ])
+      dist_mat[i, j] <- 1 - (num / denom)
+      dist_mat[j, i] <- dist_mat[i, j]
+    }
+  }
+  rownames(dist_mat) <- rownames(mat)
+  colnames(dist_mat) <- rownames(mat)
+  return(dist_mat)
+}
+
+bray_mat <- bray_dist(as.matrix(microbe_abund))
+
+# compute mean between and within groups
+mean_within_group <- function(group_label) {
+  idx <- which(groups == group_label)
+  vals <- bray_mat[idx, idx][upper.tri(bray_mat[idx, idx])]
+  mean(vals, na.rm = TRUE)
+}
+
+mean_between_groups <- function(group1, group2) {
+  idx1 <- which(groups == group1)
+  idx2 <- which(groups == group2)
+  mean(bray_mat[idx1, idx2], na.rm = TRUE)
+}
+
+# calculate results
+mean_within_A <- mean_within_group("A")
+mean_within_S <- mean_within_group("S")
+mean_between_AS <- mean_between_groups("A", "S")
+
+# print results 
+cat("Average within-group Bray–Curtis (A):", mean_within_A, "\n")
+cat("Average within-group Bray–Curtis (S):", mean_within_S, "\n")
+cat("Average between-group Bray–Curtis (A vs S):", mean_between_AS, "\n")
+
+#Average within-group Bray–Curtis (A): 0.781237 
+#Average within-group Bray–Curtis (S): 0.6783952 
+#Average between-group Bray–Curtis (A vs S): 0.8421625 
+
+
+# bray-curtis distance function
+bray_dist <- function(mat) {
+  n <- nrow(mat)
+  dist_mat <- matrix(0, n, n)
+  for (i in 1:(n - 1)) {
+    for (j in (i + 1):n) {
+      num <- 2 * sum(pmin(mat[i, ], mat[j, ]))
+      denom <- sum(mat[i, ] + mat[j, ])
+      dist_mat[i, j] <- 1 - (num / denom)
+      dist_mat[j, i] <- dist_mat[i, j]
+    }
+  }
+  rownames(dist_mat) <- rownames(mat)
+  colnames(dist_mat) <- rownames(mat)
+  return(as.dist(dist_mat))
+}
+
+# prepare data
+taxa_cols <- colnames(microbiome)[!(colnames(microbiome) %in% c("sampleID", "symptom_status"))]
+microbe_abund <- as.matrix(microbiome[, taxa_cols])
+groups <- as.factor(microbiome$symptom_status)
+
+# compute bray-curtis distances
+bray_d <- bray_dist(microbe_abund)
+D <- as.matrix(bray_d)
+
+# conduce PERMANOVA-like test
+set.seed(123)
+n_perm <- 999
+
+# Compute total sum of squares and group sum of squares
+overall_mean <- mean(D[upper.tri(D)])
+group_means <- tapply(1:length(groups), groups, function(idx) mean(D[idx, idx][upper.tri(D[idx, idx])]))
+ss_between <- sum(sapply(levels(groups), function(g) {
+  n_g <- sum(groups == g)
+  (n_g * (group_means[g] - overall_mean)^2)
+}))
+ss_total <- sum((D[upper.tri(D)] - overall_mean)^2)
+R2_obs <- ss_between / ss_total
+
+# Permutation test
+perm_R2 <- replicate(n_perm, {
+  perm_groups <- sample(groups)
+  perm_group_means <- tapply(1:length(perm_groups), perm_groups, function(idx) mean(D[idx, idx][upper.tri(D[idx, idx])]))
+  ssb <- sum(sapply(levels(groups), function(g) {
+    n_g <- sum(perm_groups == g)
+    (n_g * (perm_group_means[g] - overall_mean)^2)
+  }))
+  ssb / ss_total
+})
+
+p_value <- (sum(perm_R2 >= R2_obs) + 1) / (n_perm + 1)
+
+cat("Observed R²:", round(R2_obs, 4), "\n")
+cat("PERMANOVA p-value:", p_value, "\n")
+
