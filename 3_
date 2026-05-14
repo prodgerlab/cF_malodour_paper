@@ -1,0 +1,167 @@
+# cF PLSDA (liquid injection)
+# Date: August 26, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Plot PLSDA for liquid injection data, then calculate VIP scores for the following R scripts:
+
+# requires the following RData: 
+# liquid.RData
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(tibble)
+library(ggplot2)
+library(pls)
+library(ggrepel)
+library(dplyr)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("liquid.RData")
+
+#############################
+##
+## SCALE DATA
+##
+#############################
+
+liquid_m <- liquid
+rownames(liquid_m) <- liquid_m[[1]]  
+liquid_m <- liquid_m[, -c(1:2)]         
+
+# Convert all columns to numeric
+liquid_m[] <- lapply(liquid_m, function(x) as.numeric(as.character(x)))
+
+# Remove zero-variance columns 
+zero_var_cols <- apply(liquid_m, 2, function(x) sd(x) == 0)
+cat("Removing", sum(zero_var_cols), "zero-variance columns.\n")
+liq_fil <- liquid_m[, !zero_var_cols]
+
+X_scaled <- as.data.frame(scale(liq_fil))                               # scale data
+#colnames(X_scaled) <- make.names(colnames(X_scaled), unique = TRUE)    
+
+#############################
+##
+## PREPARE PLSDA
+##
+#############################
+
+symptom_status <- liquid$symptom_status               # get symptom_status
+Y_dummy <- model.matrix(~ symptom_status - 1)         # Prepare response dummy matrix
+
+# Fit PLS-DA model with formula interface
+plsda_model <- plsr(Y_dummy ~ ., data = X_scaled, ncomp = 3, validation = "CV")
+
+# Extract scores for plotting
+scores_df <- as.data.frame(scores(plsda_model)[, 1:2])
+colnames(scores_df) <- c("Comp1", "Comp2")
+scores_df$symptom_status <- symptom_status
+
+# Plot PLS-DA with ellipses
+group_colors <- c(A = "#009E73", S = "#E69F00")
+
+ggplot(scores_df, aes(x = Comp1, y = Comp2, color = symptom_status, fill = symptom_status)) +
+  stat_ellipse(type = "norm", geom = "polygon", alpha = 0.2, color = NA) +
+  geom_point(size = 3) +
+  scale_color_manual(values = group_colors) +
+  scale_fill_manual(values = group_colors) +
+  labs(title = "PLS-DA (Scaled): Liquid Injection") +
+  theme_minimal() +
+  theme(panel.border = element_rect(color = "black", fill = NA, size = 1),
+        legend.title = element_blank())
+
+# calculate the variance in X predictors
+explvar(plsda_model)
+# Comp 1   Comp 2   Comp 3 
+# 23.19561 41.11654 10.21541 
+
+# calculate the variance in response (Y_dummy)
+Y_pred <- predict(plsda_model, ncomp = 1:3)
+var_explained <- sapply(1:3, function(comp){
+  SS_total <- sum((Y_dummy - colMeans(Y_dummy))^2)
+  SS_res   <- sum((Y_dummy - Y_pred[,,comp])^2)
+  100 * (1 - SS_res / SS_total)
+})
+
+names(var_explained) <- paste0("Comp", 1:3)
+var_explained
+
+# Comp1    Comp2    Comp3 
+# 31.70141 42.21455 53.29122  
+
+
+#############################
+##
+## CALCULATE ANOVA 
+##
+#############################
+
+# ANOVA on components
+anova_comp1 <- aov(Comp1 ~ symptom_status, data = scores_df)
+anova_comp2 <- aov(Comp2 ~ symptom_status, data = scores_df)
+
+summary(anova_comp1)
+# Df Sum Sq Mean Sq F value  Pr(>F)   
+# symptom_status  1   4498    4498   12.02 0.00152 **
+#   Residuals      32  11971     374                   
+# ---
+#   Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+summary(anova_comp2)
+# Df Sum Sq Mean Sq F value Pr(>F)  
+# symptom_status  1   7897    7897   4.032 0.0532 .
+# Residuals      32  62681    1959                 
+# ---
+#   Signif. codes:  0 ‘***’ 0.001 ‘**’ 0.01 ‘*’ 0.05 ‘.’ 0.1 ‘ ’ 1
+
+#############################
+##
+## CALCULATE VIP SCORES
+##
+#############################
+
+vip_scores <- function(pls_model, comps = 1:2, var_names = NULL) {
+  W <- pls_model$loading.weights[, comps, drop = FALSE]
+  T <- pls_model$scores[, comps, drop = FALSE]
+  Q <- pls_model$Yloadings[, comps, drop = FALSE]
+  
+  p <- nrow(W)
+  SStot <- colSums(T^2) * colSums(Q^2)
+  
+  VIP <- numeric(p)
+  for (j in 1:p) {
+    weight_sq <- W[j, ]^2
+    VIP[j] <- sqrt(p * sum(SStot * weight_sq) / sum(SStot))
+  }
+  
+  if (is.null(var_names)) {
+    names(VIP) <- paste0("Var", seq_len(p))
+  } else {
+    names(VIP) <- var_names
+  }
+  
+  return(VIP)
+}
+
+# Calculate VIP with correct metabolite names
+var_names <- colnames(X_scaled)
+VIP <- vip_scores(plsda_model, comps = 1:2, var_names = var_names)
+
+# Sort VIP scores decreasingly
+VIP_sorted <- sort(VIP, decreasing = TRUE)
+
+# Convert to dataframe
+VIP_sorted_df <- data.frame(
+  metabolite = names(VIP_sorted),
+  VIP_score  = as.numeric(VIP_sorted),
+  row.names = NULL
+)
+
+save(VIP_sorted_df, file = "VIP_sorted_df.RData")
