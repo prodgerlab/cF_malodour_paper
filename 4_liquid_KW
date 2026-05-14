@@ -1,0 +1,49 @@
+# cF Kruskall-Wallis (liquid injection)
+# Date: August 26, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Perform KW for all peaks generated from liquid injection for the following R scripts:
+# liquid_shortlist.R
+
+# requires the following RData:
+# liquid_RData
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(dplyr)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("liquid.RData")
+
+#############################
+##
+## PERFORM KW 
+##
+#############################
+
+metabolites <- liquid[, -(1:2)]       #new df with just metabolites
+
+p_values <- sapply(metabolites, function(metab) {
+  # Kruskal-Wallis test
+  kruskal.test(metab ~ liquid$symptom_status)$p.value
+})
+
+# create new df with kw values
+kruskal_df <- data.frame(
+  metabolite = names(p_values),
+  p_value = p_values,
+  row.names = NULL
+)
+
+#sort smallest to largest
+kruskal_df <- kruskal_df[order(kruskal_df$p_value), , drop = FALSE]
+
+save(kruskal_df, file = "kruskal_df.RData")
