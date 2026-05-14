@@ -10,9 +10,6 @@
 # relies on the following data:
 # microbiome.RData
 
-
-setwd("/Users/ainslieshouldice/Desktop/Masters/R/cF_analysis_adonitol")
-
 #############################
 ##
 ## LOAD LIBRARIES
