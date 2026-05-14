@@ -1,0 +1,77 @@
+# cF Microbiome Transformed
+# Date: August 21, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Transform microbiome data using CLR transformation and amlcomp for the following scripts:
+# microbiome_liq_targeted
+# microbiome_head_targeted
+# microbiome_head_untargeted
+# microbiome_liq_untargeted
+
+# relies on the following data:
+# microbiome.RData
+
+
+setwd("/Users/ainslieshouldice/Desktop/Masters/R/cF_analysis_adonitol")
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(compositions)    
+library(mgcv)            
+library(tidyverse)      
+library(ALDEx2)     
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("microbiome.RData")
+
+#############################
+##
+## CLEAN DATA
+##
+#############################
+symptom_status <- microbiome[c(1:2)] #store symptom_status by Sample ID for later use
+count_mat <- microbiome[-c(2)] #remove symptom_status
+
+rownames(count_mat) <- count_mat[[1]]#move sampleIDs to index
+count_mat <- count_mat[, -1] #remove row 1 which held sample IDs and 2 which held symptom_status
+
+
+#################################
+##
+## SET ABUN and PREV THRESHOLDS
+##
+#################################
+
+prev_thr   <- 0    # ≥ 30 % prevalence
+abund_thr  <- 0.01       # ≥ 0 % max relative abundance
+
+prev_vec   <- colMeans(count_mat > 0)                       # prevalence
+rel_mat    <- sweep(count_mat, 1, rowSums(count_mat), "/")  # % abundance
+max_vec    <- apply(rel_mat, 2, max)
+
+keep       <- (prev_vec >= prev_thr) & (max_vec >= abund_thr)
+
+count_mat  <- count_mat[ , keep]
+rel_mat    <- rel_mat[ , keep]
+
+#################################
+##
+## RUN CLR TRANSFORMATION
+##
+#################################
+
+counts_t<-data.frame(t(count_mat))
+
+clr <- aldex.clr(counts_t, mc.samples = 128)
+
+save(clr, file = "clr.RData")
+save(count_mat, file = "count_mat.RData")
+save(symptom_status, file = "symptom_status_micro.RData")
