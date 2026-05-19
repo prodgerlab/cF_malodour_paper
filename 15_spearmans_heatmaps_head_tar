@@ -1,0 +1,54 @@
+# cF Spearman's correlation of targeted metabolites from headspace analysis
+# Date: August 26, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Create a heat map of the targeted metabolites from headspace injection based on their Spearman's correlation values by taxa, clustering by metabolite.
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(ggplot2)
+library(tidyverse)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+rm(list = ls())
+`corr_Methylamine, N,N-dimethyl-.txt` <- read.delim("corr_Methylamine, N,N-dimethyl-.txt", header = TRUE)
+
+#############################
+##
+## COMBINE INTO ONE DATAFRAME
+##
+#############################
+
+# Get all correlation objects
+corr_list <- mget(ls(pattern = "^corr_"))
+
+# Combine into one long dataframe
+corr_long <- imap_dfr(corr_list, ~ {
+  df <- as.data.frame(.x) %>% 
+    rownames_to_column("Taxa") %>% 
+    dplyr::select(Taxa, spearman.erho) %>% 
+    mutate(Metabolite = gsub("^corr_", "", .y))
+})
+
+#############################
+##
+## MAKE HEATMAP
+##
+#############################
+
+ggplot(corr_long, aes(x = Metabolite, y = Taxa, fill = spearman.erho)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(fill = "Spearman rho", x = "Metabolite", y = "Taxa")
+
+
