@@ -1,0 +1,50 @@
+# cF metabolite short list (liquid injection)
+# Date: August 26, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Create a shortlist of metabolites of interest generated from liquid injection data
+# use the following criteria:
+# 1. VIP score cutoff > 1.5
+# 2. Significant KW value (p< 0.05)
+# perform this for the following R scripts:
+# microbiome_liq_untargeted.R
+
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(dplyr)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("kruskal_df.RData")
+load("VIP_sorted_df.RData")
+
+#############################
+##
+## COMBINE DATA
+##
+#############################
+
+combined_df <- merge(kruskal_df, VIP_sorted_df, by = "metabolite")
+
+#############################
+##
+## Filter by p-value and VIP
+##
+#############################
+
+vip_thr <- 2         # set vip threshold to 2
+pval_thr <- 0.05      # set p-value threshold to 0.05
+
+keep_metabolites <- (combined_df$VIP_score > vip_thr) & (combined_df$p_value < pval_thr)
+
+liquid_short <- combined_df[keep_metabolites, ]
+
+save(liquid_short, file = "liquid_short.RData")
