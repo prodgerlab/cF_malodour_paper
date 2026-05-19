@@ -1,0 +1,84 @@
+# cF Microbiome and Untargeted Liquid Injection Analysis
+# Date: August 25, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Combine CLR data and targeted liquid metabolomics using a Spearman's correlation
+# requires RData from: 
+# microbiome_transformed.RData (generates clr values)
+# 5th_liquid_shortlist.R
+
+#############################
+## LOAD LIBRARIES
+#############################
+
+library(compositions)    # CLR transform
+library(mgcv)            # GAM / GAMM
+library(tidyverse)       # dplyr + purrr + readr + tibble
+library(ALDEx2)          # ALDEx Spearman corr
+library(dplyr)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("liquid_short.RData")
+load("count_mat.RData")
+load("liquid.RData")
+
+#############################
+##
+## CREATE DATA
+##
+#############################
+
+# create metabolomics datasheet with only target metabolites
+liq_fil <- dplyr::select(liquid, sampleID, symptom_status, all_of(liquid_short$metabolite))
+
+liq_untar <- liq_fil
+save(liq_untar, file = "liq_untar.RData")
+
+#############################
+##
+## MAKE DATASETS COMPATIBLE
+##
+#############################
+
+liq_fil$sampleID <- tolower(liq_fil$sampleID) # correct any case discrepancies
+rownames(count_mat) <- tolower(rownames(count_mat)) # correct any case discrepancies
+
+liq_o <- liq_fil %>%                                      
+  filter(sampleID %in% rownames(count_mat)) %>%
+  arrange(match(sampleID, rownames(count_mat))) %>%
+  column_to_rownames("sampleID")
+
+stopifnot(identical(rownames(liq_o), rownames(count_mat)))
+
+#############################
+##
+## RUN CORRELATIONS
+##
+#############################
+
+for (i in 2:137) {
+  column_name <- colnames(liq_o)[i]
+  message("Running correlation for: ", column_name)
+  
+  result <- aldex.corr(clr, liq_o[[i]])
+  
+  result_name <- paste0("corru_", column_name)
+  assign(result_name, result)
+  
+  file_name <- paste0(result_name, ".txt")
+  file_name <- gsub("[[:space:]]+", "_", file_name)      # spaces → "_"
+  file_name <- gsub("[^[:alnum:]_\\.-]", "", file_name)  # remove brackets/commas
+  
+  # Save correlation results directly to file
+  write.table(
+    result,
+    file = liquid_untargeted_correlations,
+    sep = "\t",
+    quote = FALSE
+  )
+}
+
