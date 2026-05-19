@@ -1,0 +1,258 @@
+# cF Liquid Injection Targeted Metabolomics
+# Date: August 22, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Generate standard curves for publication
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(ggplot2)
+
+#############################
+##
+## MAKE DATAFRAMES
+##
+#############################
+
+cadaverine <- data.frame(
+  concentration = c(0.0005, 0.001, 0.0025, 0.005, 0.01),
+  intensity = c(6976599.013, 7459435.26, 42333818.1, 139294776.4, 461316954.2)
+)
+
+putrescine <- data.frame(
+  concentration = c(0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025),
+  intensity = c(2628368.045, 4565216.439, 15417285.54, 20970789.67, 50754276.3, 103288258.4)
+)
+
+iso <- data.frame(
+  concentration = c(0.0005, 0.001, 0.0025, 0.005),
+  intensity = c(33071887.1, 74425573.4, 145266832, 245649013)
+)
+
+acetic <- data.frame(
+  concentration = c(0.0005, 0.001, 0.0025),
+  intensity = c(79492627.4, 126883286, 432935062)
+)
+
+butyric <- data.frame(
+  concentration = c(0.00025, 0.0005, 0.001, 0.0025),
+  intensity = c(26696597.3, 33461120.8, 68469996.2, 168580686)
+)
+
+#############################
+##
+## CADAVERINE STD CURVE
+##
+#############################
+
+# Fit a linear model
+model <- lm(intensity ~ concentration, data = cadaverine)
+intercept <- coef(model)[1]
+slope <- coef(model)[2]
+r2 <- summary(model)$r.squared
+
+# Create equation text for plot
+eq_label <- paste0(
+  "y = ", format(slope, digits = 3), "x + ", format(intercept, digits = 3),
+  "\nR² = ", format(r2, digits = 3)
+)
+
+# Plot
+ggplot(cadaverine, aes(x = concentration, y = intensity)) +
+  geom_point(size = 3, color = "black") +
+  geom_smooth(method = "lm", se = FALSE, color = "steelblue", linewidth = 1) +
+  labs(
+    x = "Concentration (mg/mL)",
+    y = "Peak Area"
+  ) +
+  annotate(
+    "text",
+    x = max(cadaverine$concentration) * 0.5,
+    y = max(cadaverine$peak_area) * 0.8,
+    label = eq_label,
+    size = 5,
+    hjust = 0
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  )
+
+#############################
+##
+## PUTRESCINE STD CURVE
+##
+#############################
+
+# Fit a linear model
+model <- lm(intensity ~ concentration, data = putrescine)
+
+# Extract coefficients
+intercept <- coef(model)[1]
+slope <- coef(model)[2]
+r2 <- summary(model)$r.squared
+
+# Create equation text for plot
+eq_label <- paste0(
+  "y = ", format(slope, digits = 3), "x + ", format(intercept, digits = 3),
+  "\nR² = ", format(r2, digits = 3)
+)
+
+# Plot
+ggplot(putrescine, aes(x = concentration, y = intensity)) +
+  geom_point(size = 3, color = "black") +
+  geom_smooth(method = "lm", se = FALSE, color = "steelblue", linewidth = 1) +
+  labs(
+    x = "Concentration (mg/mL)",
+    y = "Peak Area"
+  ) +
+  annotate(
+    "text",
+    x = max(cadaverine$concentration) * 0.5,
+    y = max(cadaverine$peak_area) * 0.8,
+    label = eq_label,
+    size = 5,
+    hjust = 0
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  )
+
+
+#############################
+##
+## ISOVALERIC ACID STD CURVE
+##
+#############################
+
+# Fit a linear model
+model <- lm(intensity ~ concentration, data = iso)
+
+# Extract coefficients
+intercept <- coef(model)[1]
+slope <- coef(model)[2]
+r2 <- summary(model)$r.squared
+
+# Create equation text for plot
+eq_label <- paste0(
+  "y = ", format(slope, digits = 3), "x + ", format(intercept, digits = 3),
+  "\nR² = ", format(r2, digits = 3)
+)
+
+# Plot
+ggplot(iso, aes(x = concentration, y = intensity)) +
+  geom_point(size = 3, color = "black") +
+  geom_smooth(method = "lm", se = FALSE, color = "steelblue", linewidth = 1) +
+  labs(
+    x = "Concentration (mg/mL)",
+    y = "Peak Area"
+  ) +
+  annotate(
+    "text",
+    x = max(cadaverine$concentration) * 0.5,
+    y = max(cadaverine$peak_area) * 0.8,
+    label = eq_label,
+    size = 5,
+    hjust = 0
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  )
+
+#############################
+##
+## BUTYRIC ACID STD CURVE
+##
+#############################
+
+# Fit a linear model
+model <- lm(intensity ~ concentration, data = butyric)
+
+# Extract coefficients
+intercept <- coef(model)[1]
+slope <- coef(model)[2]
+r2 <- summary(model)$r.squared
+
+# Create equation text for plot
+eq_label <- paste0(
+  "y = ", format(slope, digits = 3), "x + ", format(intercept, digits = 3),
+  "\nR² = ", format(r2, digits = 3)
+)
+
+# Plot
+ggplot(butyric, aes(x = concentration, y = intensity)) +
+  geom_point(size = 3, color = "black") +
+  geom_smooth(method = "lm", se = FALSE, color = "steelblue", linewidth = 1) +
+  labs(
+    x = "Concentration (mg/mL)",
+    y = "Peak Area"
+  ) +
+  annotate(
+    "text",
+    x = max(cadaverine$concentration) * 0.003,
+    y = max(cadaverine$peak_area) * 0.8,
+    label = eq_label,
+    size = 5,
+    hjust = 0
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  )
+
+
+#############################
+##
+## ACETIC ACID STD CURVE
+##
+#############################
+
+# Fit a linear model
+model <- lm(intensity ~ concentration, data = acetic)
+
+# Extract coefficients
+intercept <- coef(model)[1]
+slope <- coef(model)[2]
+r2 <- summary(model)$r.squared
+
+# Create equation text for plot
+eq_label <- paste0(
+  "y = ", format(slope, digits = 3), "x + ", format(intercept, digits = 3),
+  "\nR² = ", format(r2, digits = 3)
+)
+
+# Plot
+ggplot(acetic, aes(x = concentration, y = intensity)) +
+  geom_point(size = 3, color = "black") +
+  geom_smooth(method = "lm", se = FALSE, color = "steelblue", linewidth = 1) +
+  labs(
+    x = "Concentration (mg/mL)",
+    y = "Peak Area"
+  ) +
+  annotate(
+    "text",
+    x = max(cadaverine$concentration) * 0.003,
+    y = max(cadaverine$peak_area) * 0.8,
+    label = eq_label,
+    size = 5,
+    hjust = 0
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.title = element_text(face = "bold"),
+    axis.text = element_text(color = "black"),
+    panel.border = element_rect(color = "black", fill = NA, linewidth = 1)
+  )
