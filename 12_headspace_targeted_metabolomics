@@ -1,0 +1,47 @@
+# cF Liquid Injection Targeted Metabolomics
+# Date: August 22, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Calculate the TMA concentration present in the injected headspace for the following R scripts:
+# microbiome_headspace_targeted.R
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(dplyr)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("headspace.RData")
+
+#############################
+##
+## SUBSET TARGETTED METABOLITES
+##
+#############################
+
+TMA <- headspace[ , c(
+  "sampleID",
+  "symptom_status",
+  "Methylamine, N,N-dimethyl-"
+)]
+
+#############################
+##
+## CALCULATE CONCENTRATION
+##
+#############################
+
+peak_ref <- 2216331
+conc_ref <- 0.001  # mg/mL
+
+TMA <- TMA %>%
+  mutate(`Methylamine, N,N-dimethyl-` = `Methylamine, N,N-dimethyl-` / peak_ref * conc_ref)
+
+save(TMA, file = "TMA.RData")
