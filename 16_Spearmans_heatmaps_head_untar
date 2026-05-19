@@ -1,0 +1,68 @@
+# cF Spearman's correlation of untargeted metabolites from headspace analysis
+# Date: September 1, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Create a heat map of the untargeted metabolites from the short list of headspace injection based on their spearman's correlation values by taxa, clustering by metabolite.
+
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(ggplot2)
+library(tidyverse)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+rm(list = ls())
+
+files <- list.files(
+  path = "/Users/ainslieshouldice/Desktop/Masters/R/cF_analysis_adonitol",
+  pattern = "^corrhead_.*\\.txt$",
+  full.names = TRUE
+)
+
+for (f in files) {
+  obj_name <- gsub("\\.txt$", "", basename(f))
+  assign(obj_name, read.table(f, header = TRUE, sep = "\t"))
+}
+
+#############################
+##
+## COMBINE INTO ONE DATAFRAME
+##
+#############################
+
+# Get all correlation objects
+corr_list <- mget(ls(pattern = "^corrhead_"))
+
+# Combine into one long dataframe
+corr_long <- imap_dfr(corr_list, ~ {
+  df <- as.data.frame(.x) %>%
+    rownames_to_column("Taxa")   # move rownames to column
+  
+  # Only keep columns if they exist
+  df <- df %>% dplyr::select(Taxa, spearman.erho)
+  
+  df <- df %>% mutate(Metabolite = gsub("^corrhead_", "", .y))
+  
+  return(df)
+})
+
+#############################
+##
+## MAKE HEATMAP
+##
+#############################
+
+ggplot(corr_long, aes(x = Metabolite, y = Taxa, fill = spearman.erho)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(fill = "Spearman rho", x = "Metabolite", y = "Taxa")
