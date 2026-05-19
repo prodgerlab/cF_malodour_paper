@@ -1,0 +1,81 @@
+# cF Microbiome and Targeted Headspace Injection Analysis
+# Date: August 26, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Combine CLR data and targeted headspace metabolomics using a Spearman's correlation for the following R scripts:
+# Spearmans_heatmaps_head_tar.R
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(compositions)   
+library(mgcv)           
+library(tidyverse) 
+library(ALDEx2) 
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("TMA.RData")
+load("count_mat.RData")
+
+#############################
+##
+## MAKE DATASETS COMPATABLE
+##
+#############################
+
+TMA$sampleID <- tolower(TMA$sampleID) # correct any case discrepancies
+rownames(count_mat) <- tolower(rownames(count_mat)) # correct any case discrepancies
+
+headspace_o <- TMA %>%                                     
+  filter(sampleID %in% rownames(count_mat)) %>%
+  arrange(match(sampleID, rownames(count_mat))) %>%        
+  column_to_rownames("sampleID")
+
+common_ids <- intersect(rownames(count_mat), rownames(headspace_o))  
+count_mat   <- count_mat[common_ids, , drop = FALSE]
+headspace_o <- headspace_o[common_ids, , drop = FALSE]
+
+stopifnot(identical(rownames(headspace_o), rownames(count_mat)))
+
+###################################
+##
+## CALCULATE CLR FOR HEADSPACE
+##
+###################################
+
+counts_t<-data.frame(t(count_mat))                   
+
+clr.head <- aldex.clr(counts_t, mc.samples = 128)
+
+#############################
+##
+## RUN CORRELATIONS
+##
+#############################
+
+# run all correlations in a loop
+for (i in 2) {
+  column_name <- colnames(headspace_o)[i]
+  message("Running correlation for: ", column_name)
+  
+  result <- aldex.corr(clr.head, headspace_o[[i]])
+  
+  # Create a variable name like "corr_Putrescine, 4TMS(2)"
+  result_name <- paste0("corr_", column_name)
+  
+  # Assign the result to a variable in the global environment
+  assign(result_name, result)
+  
+}
+
+#investigate results
+write.table(`corr_Methylamine, N,N-dimethyl-`,   
+            file="corr_Methylamine, N,N-dimethyl-.txt",   
+            sep='\t', quote=F)
