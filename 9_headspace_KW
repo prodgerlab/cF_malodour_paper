@@ -1,0 +1,46 @@
+# cF Kruskall-Wallis (headspace injection)
+# Date: August 26, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Perform KW for all peaks generated from headspace injection for the following R scripts:
+# headspace_shortlist.R
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(dplyr)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("headspace.RData")
+
+#############################
+##
+## PERFORM KW 
+##
+#############################
+
+metabolites <- headspace[, -(1:2)]       
+
+p_values <- sapply(metabolites, function(metab) {
+  # Kruskal-Wallis test
+  kruskal.test(metab ~ headspace$symptom_status)$p.value
+})
+
+# create new df with kw values
+kruskal_df <- data.frame(
+  metabolite = names(p_values),
+  p_value = p_values,
+  row.names = NULL
+)
+
+#sort smallest to largest
+kruskal_df_head <- kruskal_df[order(kruskal_df$p_value), , drop = FALSE]
+
+save(kruskal_df_head, file = "kruskal_df_head.RData")
