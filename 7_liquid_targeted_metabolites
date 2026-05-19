@@ -1,0 +1,104 @@
+# cF Liquid Injection Targeted Metabolomics
+# Date: August 22, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Use equations of the line of best fit to calculate the concentration present in the injected swab eluent for targeted metabolites for the following scripts:
+# 8.5th_Spearmans_heatmaps_liq_tar.R
+# 8th_microbiome_liq_targeted.R
+
+
+setwd("/Users/ainslieshouldice/Desktop/Masters/R/cF_analysis_adonitol")
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(dplyr)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("liquid.RData")
+
+
+#############################
+##
+## SUBSET TARGETTED METABOLITES
+##
+#############################
+
+target_met <- liquid[ , c(
+  "sampleID",
+  "symptom_status",
+  "Putrescine, 4TMS derivative(1)", 
+  "Putrescine, 4TMS derivative(2)", 
+  "Cadaverine, 4TMS derivative(1)",
+  "Acetic acid, methyl ester",
+  "Butanoic acid, 4-hydroxy-(2)",
+  "3-Methylbutanoic acid, TMS derivative"
+)]
+
+##################################
+##
+## CALCULATE CONCENTRATION (mg/ml)
+##
+##################################
+
+# equations below model standard curves where y = PA and x = concentration (mg/mL)
+# Cadaverine 4TMS: y=5e10x - 5e7 
+# Putrescine 4TMS: y=4e9x-3e6
+# Acetic acid TMS: y=2e+11x-3e+07
+# 4-hydroxybutyric acid: 6E+10x+5e+6
+# 3-Methylbutanoic acid, TMS derivative: 5e10x+2e07
+
+target_met <- target_met %>%
+  mutate(
+    `Cadaverine, 4TMS derivative(1)` = (`Cadaverine, 4TMS derivative(1)` + 5e7) / 5e10
+  )
+
+target_met <- target_met %>%
+  mutate(
+    `Putrescine, 4TMS derivative(1)` = (`Putrescine, 4TMS derivative(1)` + 3e6) / 4e9
+  )
+
+target_met <- target_met %>%
+  mutate(
+    `Putrescine, 4TMS derivative(2)` = (`Putrescine, 4TMS derivative(2)` + 3e6) / 4e9
+  )
+
+target_met <- target_met %>%
+  mutate(`Putrescine, 4TMS` = `Putrescine, 4TMS derivative(1)` + `Putrescine, 4TMS derivative(2)`) %>%
+  dplyr::select(-`Putrescine, 4TMS derivative(1)`, -`Putrescine, 4TMS derivative(2)`)
+
+target_met <- target_met %>%
+  mutate(
+    `Acetic Acid, TMS derivative(2)` = (`Acetic acid, methyl ester` + 3e7) / 2e11
+  )
+
+target_met <- target_met %>%
+  mutate(
+    `Butanoic acid, 4-hydroxy-(2)` = (`Butanoic acid, 4-hydroxy-(2)` - 5e6) / 6e10
+  )
+
+target_met <- target_met %>%
+  mutate(
+    `3-Methylbutanoic acid, TMS derivative` = (`3-Methylbutanoic acid, TMS derivative` - 2e7) / 5e10
+  )
+
+##################################
+##
+## REPLACE - VAL WITH 0
+##
+##################################
+
+
+target_met <- target_met %>%
+  mutate(across(where(is.numeric), ~ if_else(.x < 0, 0, .x)))
+
+liquid_target_met <- target_met
+
+save(liquid_target_met, file = "liquid_target_met.RData")
