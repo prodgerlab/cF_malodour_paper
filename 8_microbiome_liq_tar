@@ -1,0 +1,89 @@
+# cF Microbiome and Targeted Liquid Injection Analysis
+# Date: August 25, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Combine CLR data and targeted liquid metabolomics using a Spearman's correlation for the following scripts:
+# spearmans_heatmaps_liq_tar
+
+# relies on the following scripts:
+# 2nd_microbiome_transformed.R
+# 7th_liquid_targeted_metabolomics.R
+
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(compositions)    
+library(mgcv)            
+library(tidyverse)       
+library(ALDEx2)        
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("clr.RData")
+load("liquid_target_met.RData")
+load("count_mat.RData")
+
+#############################
+##
+## MAKE DATASETS COMPATABLE
+##
+#############################
+
+liquid_target_met$sampleID <- tolower(liquid_target_met$sampleID) # correct any case discrepancies
+rownames(count_mat) <- tolower(rownames(count_mat)) # correct any case discrepancies
+
+liq_o <- liquid_target_met %>%                                      
+  filter(sampleID %in% rownames(count_mat)) %>%
+  arrange(match(sampleID, rownames(count_mat))) %>%      
+  column_to_rownames("sampleID")
+
+stopifnot(identical(rownames(liq_o), rownames(count_mat)))
+
+#############################
+##
+## RUN CORRELATIONS
+##
+#############################
+
+# run all correlations in a loop
+for (i in 2:7) {
+  column_name <- colnames(liq_o)[i]
+  message("Running correlation for: ", column_name)
+  
+  result <- aldex.corr(clr, liq_o[[i]])
+  
+  # Create a variable name like "corr_Putrescine, 4TMS(2)"
+  result_name <- paste0("corr_", column_name)
+  
+  # Assign the result to a variable in the global environment
+  assign(result_name, result)
+  
+}
+
+#investigate results
+write.table(`corr_3-Methylbutanoic acid, TMS derivative`,   
+            file="corr_3-Methylbutanoic acid, TMS derivative.txt",   
+            sep='\t', quote=F)
+
+write.table(`corr_Acetic Acid, TMS derivative(2)`, 
+            file="corr_Acetic Acid, TMS derivative(2).txt", 
+            sep='\t', quote=F)
+
+write.table(`corr_Butanoic acid, 4-hydroxy-(2)`,  
+            file="corr_Butanoic acid, 4-hydroxy-(2).txt",  
+            sep='\t', quote=F)
+
+write.table(`corr_Cadaverine, 4TMS derivative(1)`,  
+            file="corr_Cadaverine, 4TMS derivative(2).txt",  
+            sep='\t', quote=F)
+
+write.table(`corr_Putrescine, 4TMS`,  
+            file="corr_Putrescine, 4TMS.txt",  
+            sep='\t', quote=F)
