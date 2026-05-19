@@ -1,0 +1,49 @@
+# cF metabolite short list (headspace injection)
+# Date: September 1, 2025
+# Owner: Ainslie C. Shouldice
+# Description: Create a shortlist of metabolites of interest generated from headspace injection data
+# use the following criteria:
+# 1. VIP score cutoff > 1
+# 2. Significant KW value
+# perform this for the following R scripts:
+# microbiome_head_untargeted.R
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(dplyr)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("kruskal_df_head.RData")
+load("VIP_sorted_df_head.RData")
+
+#############################
+##
+## COMBINE DATA
+##
+#############################
+
+combined_df <- merge(kruskal_df_head, VIP_sorted_df_head, by = "metabolite")
+
+#############################
+##
+## FILTER BY P-VALUE AND VIP
+##
+#############################
+
+vip_thr <- 1         # set vip threshold to 1
+pval_thr <- 0.05      # set p-value threshold to 0.05
+
+keep_metabolites <- (combined_df$VIP_score > vip_thr) & (combined_df$p_value < pval_thr)
+
+head_short <- combined_df[keep_metabolites, ]
+
+save(head_short, file = "head_short.RData")
