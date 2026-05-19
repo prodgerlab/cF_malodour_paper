@@ -1,0 +1,132 @@
+# cF Microbiome and Untargeted Headspace Correlation Analysis
+# Date: October 2025
+# Author: Ainslie C. Shouldice
+# Description: 
+#   Combines microbiome (CLR-transformed) and untargeted headspace data,
+#   retaining only shared samples and performing Spearman correlations
+#   between microbial taxa and metabolites.
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(compositions)   
+library(mgcv)         
+library(tidyverse)     
+library(ALDEx2)       
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+load("microbiome.RData")  
+load("headspace.RData")   
+load("head_short.RData")  
+
+#############################
+##
+## PREPARE MICROBIOME DATA
+##
+#############################
+
+# Separate metadata and counts
+symptom_status <- microbiome[c(1:2)]     
+count_mat <- microbiome[-c(2)]         
+rownames(count_mat) <- tolower(count_mat[[1]])
+count_mat <- count_mat[, -1]   
+
+#############################
+##
+## PREPARE HEADSPACE DATA
+##
+#############################
+
+head_fil <- headspace %>%
+  dplyr::select(sampleID, symptom_status, any_of(head_short$metabolite))
+
+head_fil$sampleID <- tolower(head_fil$sampleID)
+
+#############################
+##
+## ALIGN DATASETS BY SAMPLE ID
+##
+#############################
+
+common_samples <- intersect(rownames(count_mat), head_fil$sampleID)
+
+count_mat <- count_mat[common_samples, , drop = FALSE]
+head_o <- head_fil %>%
+  filter(sampleID %in% common_samples) %>%
+  arrange(factor(sampleID, levels = common_samples)) %>%
+  column_to_rownames("sampleID")
+
+# Ensure perfect alignment
+stopifnot(identical(rownames(count_mat), rownames(head_o)))
+
+#############################
+##
+## FILTER MICROBIOME FEATURES
+##
+#############################
+
+prev_thr   <- 0.0    # ≥ 0% prevalence
+abund_thr  <- 0.01   # ≥ 1% max relative abundance
+
+prev_vec   <- colMeans(count_mat > 0)
+rel_mat    <- sweep(count_mat, 1, rowSums(count_mat), "/")
+max_vec    <- apply(rel_mat, 2, max, na.rm = TRUE)
+
+keep <- (prev_vec >= prev_thr) & (max_vec >= abund_thr)
+
+count_mat <- count_mat[, keep, drop = FALSE]
+rel_mat   <- rel_mat[, keep, drop = FALSE]
+
+#############################
+##
+## CLR TRANSFORMATION
+##
+#############################
+
+counts_t <- data.frame(t(count_mat))
+clr <- aldex.clr(counts_t, mc.samples = 128)
+
+#############################
+##
+## RUN SPEARMAN CORRELATIONS
+##
+#############################
+
+for (i in 2:ncol(head_o)) {
+  column_name <- colnames(head_o)[i]
+  message("Running correlation for: ", column_name)
+  
+  result <- aldex.corr(clr, head_o[[i]])
+  
+  result_name <- paste0("corrhead_", column_name)
+  assign(result_name, result)
+  
+  file_name <- paste0(result_name, ".txt")
+  file_name <- gsub("[[:space:]]+", "_", file_name)      
+  file_name <- gsub("[^[:alnum:]_\\.-]", "", file_name)  
+  
+  write.table(result, file = file_name, sep = "\t", quote = FALSE)
+}
+
+#############################
+##
+## SAVE OUTPUTS
+##
+#############################
+
+head_untar<-head_o
+
+save(clr, file = "clr.RData")
+save(count_mat, file = "count_mat.RData")
+save(symptom_status, file = "symptom_status_micro.RData")
+save(head_untar, file = "head_untar.RData")
+
+message("Analysis complete: CLR transformation and correlations saved.")
