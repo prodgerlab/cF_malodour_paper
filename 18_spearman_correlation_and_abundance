@@ -1,0 +1,622 @@
+# cF analysis - Clean data
+# Date: September 9, 2025
+# Elaborated by: Ainslie C. Shouldice
+# Description: Generate a spearman's correlation of microbiome data
+
+#############################
+##
+## LOAD LIBRARIES
+##
+#############################
+
+library(rstatix)
+library(dplyr)
+library(tibble)
+library(tidyr)
+library(ggplot2)
+library(reshape2)
+library(svglite)
+library(gt)
+library(Hmisc)
+
+set.seed(123)
+
+#############################
+##
+## LOAD DATA
+##
+#############################
+
+rm(list = ls())
+
+load("microbiome.RData")
+load("liquid_target_met.RData")
+load("TMA.RData")
+load("head_untar.RData")
+load("liq_untar.RData")
+
+###################################################
+##
+## ClEAN AND SCALE DATA FOR SPEARMAN'S CORRELATION
+##
+###################################################
+
+
+microbiome_count <- microbiome
+rownames(microbiome_count) <- microbiome_count$sampleID
+microbiome_count <- microbiome_count[ , -c(1:2)]
+
+# Eliminate columns (taxa) with zeros
+microbiome_count <- microbiome_count[, colSums(microbiome_count, na.rm = TRUE) > 0, drop = FALSE]
+
+# Eliminate rows (samples) with zeros
+microbiome_count <- microbiome_count[rowSums(microbiome_count, na.rm = TRUE) > 0, , drop = FALSE]
+
+# Calculate relative abundances
+totals <- rowSums(microbiome_count, na.rm = TRUE)
+microbiome_abund <- sweep(microbiome_count, 1, totals, "/")
+
+# Confirm row sums are 1
+rowSums(microbiome_abund)
+
+#create targeted metabolite dataframe
+rownames(liquid_target_met) <- liquid_target_met[[1]]
+lt <- liquid_target_met[,-c(1:2)]
+
+rownames(TMA) <- TMA[[1]]
+TMA_fil <- TMA[,-c(1)]
+
+# merge metabolites
+
+mets <- merge(lt, TMA_fil, by = "row.names", all = FALSE)
+rownames(mets) <- mets$Row.names
+mets <- mets[ , -1]
+mets <- mets[ , !(colnames(mets) %in% "symptom_status")]
+
+# clean microbiome data to only include common rownames
+
+common_ids <- intersect(rownames(mets), rownames(microbiome_abund))
+
+mets <- mets[common_ids, , drop = FALSE]
+mets <- mets[, !(names(mets) %in% "symptom_status")]
+microbiome_abund <- microbiome_abund[common_ids, , drop = FALSE]
+
+# get top 50 taxa
+prev_vec <- colMeans(microbiome_abund > 0)
+top30_taxa <- names(sort(prev_vec, decreasing = TRUE))[1:50]
+microbiome_abund_top30 <- microbiome_abund[, top30_taxa]
+
+# merge to one dataframe
+
+micro_met <- merge(mets, microbiome_abund_top30)
+rownames(micro_met) <- micro_met$Row.names
+micro_met$Row.names <- NULL
+
+#z-scale data 
+micro_met <- as.data.frame(scale(micro_met))
+                           
+#########################################################
+##
+## SPLIT MICRO_MET INTO MICROBIOME AND METABOLITE SUBSETS
+##
+#########################################################
+microbiome_scaled <- micro_met[, colnames(micro_met) %in% colnames(microbiome_abund_top30)]
+mets_scaled <- micro_met[, colnames(micro_met) %in% colnames(mets)]
+
+micro_names <- colnames(microbiome_scaled)
+met_names <- colnames(mets_scaled)
+
+#########################################################
+##
+## GENERATE MICROBIOME AND SPEARMAN'S CORRELATION MATRIX 
+##
+#########################################################
+
+cormat <- cor(micro_met, method = "spearman", use = "pairwise.complete.obs")
+
+# Microbe–microbe correlation matrix
+cormat_micro <- cormat[micro_names, micro_names, drop = FALSE]
+
+
+# Cluster the top 50 taxa into 5 clusters
+dist_mat <- dist(cormat_micro)
+hc <- hclust(dist_mat, method = "ward.D2")
+taxa_clusters <- cutree(hc, k = 5)
+
+
+# Reorder correlation matrix by clusters
+
+taxa_order <- names(sort(taxa_clusters))
+cormat_micro_ordered <- cormat_micro[taxa_order, taxa_order]
+
+# Melt for ggplot
+melted_cormat_micro <- melt(as.matrix(cormat_micro_ordered), na.rm = TRUE) %>%
+  mutate(value = round(value, 2),
+         Var1 = factor(Var1, levels = taxa_order),
+         Var2 = factor(Var2, levels = rev(taxa_order)))  # reverse y-axis for proper orientation
+
+
+# Compute cluster boundaries
+cluster_sizes <- table(taxa_clusters[taxa_order])
+cluster_cumsum <- cumsum(cluster_sizes)
+
+n_taxa <- length(taxa_order)
+hline_positions <- cluster_cumsum + 0.5              # horizontal lines
+vline_positions <- n_taxa - rev(cluster_cumsum) + 0.5 # vertical lines (reversed for x-axis)
+
+# Plot heatmap with cluster boundaries
+ggheatmap_micro <- ggplot(melted_cormat_micro,
+                          aes(x = Var2, y = Var1, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "#383da0", high = "#d32b07", mid = "white",
+                       midpoint = 0, limit = c(-1,1),
+                       name = "Spearman\nCorrelation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 11, hjust = 1),
+        axis.text.y = element_text(size = 11, hjust = 1)) +
+  labs(x = NULL, y = NULL) +
+  coord_fixed() +
+  theme(panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks = element_blank()) +
+  # Add cluster boundary lines
+  geom_hline(yintercept = hline_positions, color = "black", size = 0.6) +
+  geom_vline(xintercept = vline_positions, color = "black", size = 0.6)
+
+# Display heatmap
+ggheatmap_micro
+
+#############################################
+##
+## GENERATE TABLE OF MICROBIOME CORRELATIONS 
+##
+#############################################
+
+# Use the relative-abundance top taxa 
+taxa_df <- as.data.frame(microbiome_abund_top30)
+
+# Prepare combinations of taxa (unique pairs: A-B where A < B)
+taxa_names <- colnames(taxa_df)
+pairs <- combn(taxa_names, 2, simplify = FALSE)
+
+# Initialize results list
+res_list <- vector("list", length(pairs))
+
+# Loop through pairs and run cor.test (Spearman)
+for (i in seq_along(pairs)) {
+  pair <- pairs[[i]]
+  x <- taxa_df[[ pair[1] ]]
+  y <- taxa_df[[ pair[2] ]]
+  # Use exact = FALSE for larger sample sizes to avoid warnings
+  ct <- suppressWarnings(cor.test(x, y, method = "spearman", exact = FALSE))
+  res_list[[i]] <- data.frame(
+    Taxon_1 = pair[1],
+    Taxon_2 = pair[2],
+    Spearman_rho = as.numeric(ct$estimate),
+    P_value = as.numeric(ct$p.value),
+    stringsAsFactors = FALSE
+  )
+}
+
+# Combine and adjust p-values (FDR BH)
+spearman_results <- do.call(rbind, res_list)
+spearman_results$FDR_adjusted_P <- p.adjust(spearman_results$P_value, method = "BH")
+
+# Format numbers for presentation
+spearman_results <- spearman_results %>%
+  mutate(
+    Spearman_rho = round(Spearman_rho, 3),
+    P_value = signif(P_value, 3),
+    FDR_adjusted_P = signif(FDR_adjusted_P, 3)
+  ) %>%
+  arrange(as.numeric(FDR_adjusted_P))
+
+# View top lines
+print(head(spearman_results, 12))
+
+# Save CSV (publication-ready)
+write.csv(spearman_results,
+          file = "microbe_microbe_spearman_FDR.csv",
+          row.names = FALSE)
+
+# Optional: also save a filtered table of significant correlations (FDR < 0.05)
+sig_results <- spearman_results %>%
+  filter(as.numeric(FDR_adjusted_P) < 0.05)
+
+if (nrow(sig_results) > 0) {
+  write.csv(sig_results, "microbe_microbe_spearman_FDR_significant.csv", row.names = FALSE)
+  gtsave(sig_results %>% gt(), "microbe_microbe_spearman_FDR_significant.html")
+}
+
+
+##############################################################
+##
+## GENERATE TARGETED METABOLITE SPEARMAN'S CORRELATION MATRIX
+##
+##############################################################
+
+# Split micro_met into microbiome and metabolite subsets
+microbiome_scaled <- scale(microbiome_abund_top30)          
+mets_scaled <- mets[, apply(mets, 2, var) != 0]          
+mets_scaled <- scale(mets_scaled)                  
+
+
+# Compute microbe–metabolite Spearman correlation matrix
+cormat_met <- cor(microbiome_scaled, mets_scaled,
+                  method = "spearman", use = "pairwise.complete.obs")
+
+
+# Order rows by taxa cluster
+taxa_order <- names(sort(taxa_clusters[colnames(microbiome_scaled)])) 
+cormat_met <- cormat_met[taxa_order, , drop = FALSE]
+
+
+# Cluster metabolite data hierarchically by 
+col_dist <- dist(t(cormat_met))              # distance between metabolites
+col_hclust <- hclust(col_dist, method = "average")
+col_order <- col_hclust$labels[col_hclust$order]
+
+# Reorder columns by clustering
+cormat_met <- cormat_met[, col_order, drop = FALSE]
+
+
+# Melt for ggplot
+melted_cormat_met <- melt(cormat_met, na.rm = TRUE) %>%
+  mutate(
+    Var1 = factor(Var1, levels = rownames(cormat_met)),
+    Var2 = factor(Var2, levels = colnames(cormat_met)), 
+    value = as.numeric(value)                        
+  )
+
+
+# Plot heatmap
+ggheatmap_met <- ggplot(melted_cormat_met, aes(x = Var2, y = Var1, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "darkgreen", high = "purple", mid = "white",
+                       midpoint = 0, limit = c(-1, 1),
+                       name = "Spearman\nCorrelation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 10, hjust = 1),
+        axis.text.y = element_text(size = 11, hjust = 1)) +
+  labs(x = "Metabolites (clustered)", y = "Top 50 Bacteria (clustered)") +
+  coord_fixed() +
+  theme(panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks = element_blank())
+
+# show heatmap
+ggheatmap_met
+
+##############################################################
+##
+## TARGETED METABOLOMICS HEATMAP WITH SIGNIFICANCE STARS
+##
+##############################################################
+
+# scale microbiome data
+microbiome_scaled <- scale(microbiome_abund_top30)   
+mets_scaled <- mets[, apply(mets, 2, var) != 0]     
+mets_scaled <- scale(mets_scaled)               
+
+
+# Compute microbe–metabolite Spearman correlations
+cormat_met <- cor(microbiome_scaled, mets_scaled,
+                  method = "spearman", use = "pairwise.complete.obs")
+
+
+# Compute p-values for each pair
+pval_met <- matrix(NA,
+                   nrow = ncol(microbiome_scaled),  
+                   ncol = ncol(mets_scaled),        
+                   dimnames = list(colnames(microbiome_scaled),
+                                   colnames(mets_scaled)))
+
+for(i in 1:ncol(microbiome_scaled)){
+  for(j in 1:ncol(mets_scaled)){
+    test <- cor.test(microbiome_scaled[, i], mets_scaled[, j], method = "spearman")
+    pval_met[i, j] <- test$p.value
+  }
+}
+
+
+# Order microbes by taxa cluster
+taxa_order <- names(sort(taxa_clusters[colnames(microbiome_scaled)]))
+cormat_met <- cormat_met[taxa_order, , drop = FALSE]
+pval_met <- pval_met[taxa_order, , drop = FALSE]
+
+
+# Hierarchical clustering of metabolites 
+col_dist <- dist(t(cormat_met))
+col_hclust <- hclust(col_dist, method = "average")
+col_order <- col_hclust$labels[col_hclust$order]
+
+# Reorder columns
+cormat_met <- cormat_met[, col_order, drop = FALSE]
+pval_met <- pval_met[, col_order, drop = FALSE]
+
+
+# Melt correlation + p-values for ggplot
+melted_cormat_met <- melt(cormat_met, na.rm = TRUE) %>%
+  mutate(Var1 = factor(Var1, levels = rownames(cormat_met)),
+         Var2 = factor(Var2, levels = colnames(cormat_met)),
+         value = as.numeric(value))
+
+melted_pval_met <- melt(pval_met, na.rm = TRUE) %>%
+  rename(pval = value)
+
+melted_cormat_met <- left_join(melted_cormat_met, melted_pval_met, by = c("Var1","Var2"))
+
+# Add significance stars
+melted_cormat_met <- melted_cormat_met %>%
+  mutate(stars = case_when(
+    pval <= 0.001 ~ "***",
+    pval <= 0.01  ~ "**",
+    pval <= 0.05  ~ "*",
+    TRUE ~ ""
+  ))
+
+# Plot heatmap with stars
+ggheatmap_met <- ggplot(melted_cormat_met, aes(x = Var2, y = Var1, fill = value)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = stars), color = "black", size = 4) +
+  scale_fill_gradient2(low = "darkgreen", high = "purple", mid = "white",
+                       midpoint = 0, limit = c(-1, 1),
+                       name = "Spearman\nCorrelation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 10, hjust = 1),
+        axis.text.y = element_text(size = 11, hjust = 1)) +
+  labs(x = "Metabolites (clustered)", y = "Top 50 Bacteria (clustered)") +
+  coord_fixed() +
+  theme(panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks = element_blank())
+
+
+ggheatmap_met
+
+######################################################
+##
+## UNTARGETTED METABOLOMICS AND MICROBIOME HEATMAP 
+##
+####################################################
+
+
+# Prepare liq_untar
+rownames(liq_untar) <- liq_untar[[1]]
+liq_untar_fil <- liq_untar[, -c(1:2)]
+
+# Prepare head_untar
+head_untar_fil <- head_untar[, -1] 
+
+# Make rownames consistent 
+rownames(liq_untar_fil) <- tolower(rownames(liq_untar_fil))
+rownames(head_untar_fil) <- tolower(rownames(head_untar_fil))
+rownames(microbiome_abund) <- tolower(rownames(microbiome_abund))
+
+# Merge untargeted metabolite datasets by sample ID
+untar_mets <- merge(liq_untar_fil, head_untar_fil, by = "row.names", all = FALSE)
+rownames(untar_mets) <- untar_mets$Row.names
+untar_mets <- untar_mets[, -1]
+
+untar_mets <- untar_mets[, !grepl("Feature", colnames(untar_mets))]
+
+# Ensure only common samples with microbiome
+common_ids_untar <- intersect(rownames(untar_mets), rownames(microbiome_abund))
+untar_mets <- untar_mets[common_ids_untar, , drop = FALSE]
+microbiome_abund_untar <- microbiome_abund[common_ids_untar, , drop = FALSE]
+
+# Keep only top 50 taxa
+microbiome_abund_untar_top30 <- microbiome_abund_untar[, top30_taxa]
+
+# Z-scale untargeted metabolite data
+untar_mets_scaled <- as.data.frame(scale(untar_mets))
+microbiome_scaled_untar <- as.data.frame(scale(microbiome_abund_untar_top30))
+
+# Merge into one dataframe
+micro_met_untar <- merge(untar_mets_scaled, microbiome_scaled_untar,
+                         by = "row.names", all = FALSE)
+rownames(micro_met_untar) <- micro_met_untar$Row.names
+micro_met_untar$Row.names <- NULL
+
+# Spearman correlation
+cormat_untar <- micro_met_untar %>% cor_mat(method = "spearman", alternative = "two.sided")
+cormat_untar <- column_to_rownames(cormat_untar, var = "rowname")
+
+# Subset metabolite–microbiome block
+met_names_untar <- colnames(untar_mets_scaled)
+cormat_met_untar <- cormat_untar[micro_names, met_names_untar]
+cormat_met_untar <- cormat_met_untar[top30_taxa, ]
+
+# Reorder rows by bacterial clusters
+taxa_clusters_top <- taxa_clusters[top30_taxa]
+row_order <- order(taxa_clusters_top)
+cormat_met_untar <- cormat_met_untar[row_order, ]
+
+# Cluster metabolites (columns)
+col_dist_untar <- dist(t(cormat_met_untar))
+col_clust_untar <- hclust(col_dist_untar, method = "average")
+col_order_untar <- col_clust_untar$labels[col_clust_untar$order]
+
+cormat_met_untar <- cormat_met_untar[, col_order_untar]
+
+# Melt for ggplot
+melted_cormat_met_untar <- melt(as.matrix(cormat_met_untar), na.rm = TRUE) %>%
+  dplyr::mutate(value = round(value, 2))
+
+# Heatmap plot
+ggheatmap_met_untar <- ggplot(melted_cormat_met_untar, aes(x = factor(Var2, levels = col_order_untar),
+                                                           y = factor(Var1, levels = unique(Var1)),
+                                                           fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "darkgreen", high = "purple", mid = "white",
+                       midpoint = 0, limit = c(-1,1), space = "Lab",
+                       name="Spearman\nCorrelation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 10, hjust = 1),
+        axis.text.y = element_text(size = 12, hjust = 1)) +
+  labs(x="Untargeted Metabolites (clustered)", y="Top 50 Bacteria (clustered)") +
+  coord_fixed() +
+  theme(panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks = element_blank())
+
+ggheatmap_met_untar
+
+##############################################################
+##
+## UNTARGETED METABOLOMICS HEATMAP WITH SIGNIFICANCE STARS
+##
+##############################################################
+
+# Spearman correlation with p-values
+cor_results <- Hmisc::rcorr(as.matrix(micro_met_untar), type = "spearman")
+
+# Extract correlation and p-value matrices
+cormat_untar <- cor_results$r
+pval_untar <- cor_results$P
+
+# Subset metabolite–microbiome block
+met_names_untar <- colnames(untar_mets_scaled)
+cormat_met_untar <- cormat_untar[micro_names, met_names_untar]
+pval_met_untar <- pval_untar[micro_names, met_names_untar]
+
+# Reorder rows by bacterial clusters
+taxa_clusters_top <- taxa_clusters[top30_taxa]
+row_order <- order(taxa_clusters_top)
+cormat_met_untar <- cormat_met_untar[row_order, ]
+pval_met_untar <- pval_met_untar[row_order, ]
+
+# Cluster metabolites
+col_dist_untar <- dist(t(cormat_met_untar))
+col_clust_untar <- hclust(col_dist_untar, method = "average")
+col_order_untar <- col_clust_untar$labels[col_clust_untar$order]
+
+cormat_met_untar <- cormat_met_untar[, col_order_untar]
+pval_met_untar <- pval_met_untar[, col_order_untar]
+
+signif_stars <- ifelse(pval_met_untar <= 0.001, "***",
+                       ifelse(pval_met_untar <= 0.01, "**",
+                              ifelse(pval_met_untar <= 0.05, "*", "")))
+
+# Melt for ggplot
+melted_cormat_met_untar <- melt(as.matrix(cormat_met_untar), na.rm = TRUE)
+melted_stars <- melt(as.matrix(signif_stars), na.rm = TRUE)
+
+melted_plot_data <- melted_cormat_met_untar %>%
+  left_join(melted_stars, by = c("Var1", "Var2")) %>%
+  rename(correlation = value.x, stars = value.y)
+
+ggheatmap_met_untar <- ggplot(melted_plot_data,
+                              aes(x = factor(Var2, levels = col_order_untar),
+                                  y = factor(Var1, levels = unique(Var1)),
+                                  fill = correlation)) +
+  geom_tile(color = "white") +
+  geom_text(aes(label = stars), color = "black", size = 5) +
+  scale_fill_gradient2(low = "darkgreen", high = "purple", mid = "white",
+                       midpoint = 0, limit = c(-1,1),
+                       name = "Spearman\nCorrelation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, size = 10, hjust = 1),
+        axis.text.y = element_text(size = 12, hjust = 1),
+        panel.grid.major = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank(),
+        axis.ticks = element_blank()) +
+  labs(x = "Untargeted Metabolites (clustered)",
+       y = "Top 50 Bacteria (clustered)") +
+  coord_fixed()
+
+ggheatmap_met_untar
+
+
+########################
+
+# TARGETTED KW
+
+########################
+
+
+# Merge by sampleID and symptom_status
+merged_df <- inner_join(TMA, liquid_target_met, 
+                        by = c("sampleID", "symptom_status"))
+
+# Convert from wide to long format
+merged_long <- merged_df %>%
+  pivot_longer(
+    cols = -c(sampleID, symptom_status),
+    names_to = "metabolite",
+    values_to = "concentration"
+  )
+
+# Boxplot of all metabolites by symptom status
+ggplot(merged_long, aes(x = symptom_status, y = concentration, fill = symptom_status)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_jitter(width = 0.2, alpha = 0.5, size = 1) +
+  facet_wrap(~ metabolite, scales = "free_y") +
+  scale_fill_manual(values = c("S" = "#E69F00",
+                               "A" = "#009E73")) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 14),
+    strip.text = element_text(size = 12, face = "bold")
+  ) +
+  ylab("Concentration (mg/mL)")
+
+###### without outlier 
+
+# required packages
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(scales)
+
+# target metabolite name (adjust if your exact string differs)
+target <- "Methylamine, N,N-dimethyl-"
+
+# prepare data, coerce types and add a row id
+tmp <- merged_long %>%
+  mutate(
+    concentration = as.numeric(as.character(concentration)),  # safe coercion from factor/char
+    metabolite = as.character(metabolite),
+    metabolite_clean = str_trim(metabolite)   # remove leading/trailing whitespace
+  ) %>%
+  mutate(.row = row_number())
+
+# identify the single row (first) with the max concentration for the target metabolite
+row_to_remove <- tmp %>%
+  filter(metabolite_clean == target & !is.na(concentration)) %>%
+  slice_max(concentration, n = 1, with_ties = FALSE) %>%
+  pull(.row)
+
+# remove it (or warn if no matching non-NA value was found)
+if (length(row_to_remove) == 0) {
+  warning(paste0("No non-NA match found for metabolite: '", target, "'. No rows removed."))
+  filtered_long <- tmp %>% select(-.row, -metabolite_clean)
+} else {
+  filtered_long <- tmp %>%
+    filter(!(.row %in% row_to_remove)) %>%
+    select(-.row, -metabolite_clean)
+}
+
+# plot using filtered data
+ggplot(filtered_long, aes(x = symptom_status, y = concentration, fill = symptom_status)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.8) +
+  geom_jitter(width = 0.2, alpha = 0.5, size = 1) +
+  facet_wrap(~ metabolite, scales = "free_y") +
+  scale_fill_manual(values = c("S" = "#E69F00", "A" = "#009E73")) +
+  scale_y_continuous(breaks = scales::pretty_breaks()) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(size = 12),
+    axis.title.x = element_blank(),
+    axis.title.y = element_text(size = 14),
+    strip.text = element_text(size = 12, face = "bold")
+  ) +
+  ylab("Concentration (mg/mL)")
+
